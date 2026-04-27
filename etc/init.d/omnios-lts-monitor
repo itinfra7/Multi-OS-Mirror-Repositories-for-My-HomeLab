@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="OmniOS LTS mirror monitor collector"
+command=/usr/local/sbin/omnios-lts-monitor-loop.sh
+pidfile=/run/omnios-lts-monitor.pid
+command_background=true
+
+depend() {
+    need net nginx
+    use dns logger
+}

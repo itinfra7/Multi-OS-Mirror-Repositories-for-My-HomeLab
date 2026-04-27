@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="openindiana-sync status holder; real sync is launched by mirrors-sync"
+command=/usr/local/sbin/mirror-idle-service.sh
+command_args="openindiana-sync"
+pidfile=/run/openindiana-sync.pid
+command_background=true
+
+depend() {
+    need net
+    use logger
+}

@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- Credits: itinfra7 from GitHub -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mirror Operations Console</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="desktop">
+    <header class="topbar">
+      <div>
+        <div class="brand">Mirror Operations Console</div>
+        <div class="subline">single host / multi repository monitor</div>
+      </div>
+      <div class="top-actions">
+        <span id="refresh-state" class="pill idle">loading</span>
+        <span id="clock" class="clock">-</span>
+      </div>
+    </header>
+
+    <section class="summary">
+      <div class="summary-item">
+        <span class="label">Repositories</span>
+        <strong id="repo-count">-</strong>
+      </div>
+      <div class="summary-item">
+        <span class="label">Healthy</span>
+        <strong id="healthy-count">-</strong>
+      </div>
+      <div class="summary-item">
+        <span class="label">Sync Running</span>
+        <strong id="running-count">-</strong>
+      </div>
+      <div class="summary-item">
+        <span class="label">Needs Attention</span>
+        <strong id="issue-count">-</strong>
+      </div>
+      <div class="summary-item speed-summary">
+        <span class="label">Upstream Now</span>
+        <strong id="sync-speed">-</strong>
+        <span id="sync-limit" class="meta">limit -</span>
+        <div class="limit-controls">
+          <input id="limit-rate-mbps" class="limit-input" type="number" min="0.1" step="0.1" inputmode="decimal" aria-label="Aggregate limit MB/s" title="Aggregate limit MB/s">
+          <span class="limit-unit">MB/s</span>
+          <button id="limit-toggle" class="tool-button" type="button">toggle</button>
+        </div>
+      </div>
+      <div class="summary-item resource-summary">
+        <span class="label">CPU</span>
+        <strong id="cpu-summary">-</strong>
+        <span id="cpu-detail" class="meta">vcpu -</span>
+      </div>
+      <div class="summary-item resource-summary">
+        <span class="label">RAM</span>
+        <strong id="ram-summary">-</strong>
+        <span id="ram-detail" class="meta">swap -</span>
+      </div>
+      <div class="summary-item">
+        <span class="label">Storage</span>
+        <strong id="storage-summary">-</strong>
+      </div>
+    </section>
+
+    <main id="repo-grid" class="repo-grid" aria-live="polite"></main>
+  </div>
+
+  <template id="repo-template">
+    <article class="repo-window">
+      <div class="titlebar">
+        <div>
+          <span class="repo-title"></span>
+          <span class="repo-id"></span>
+        </div>
+        <span class="repo-health pill idle">loading</span>
+      </div>
+      <div class="repo-content">
+        <section class="metric-row">
+          <div class="metric">
+            <span class="label">Sync</span>
+            <strong class="sync-status">-</strong>
+            <span class="meta sync-detail">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">ETA</span>
+            <strong class="process">-</strong>
+            <span class="meta eta-detail">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Upstream</span>
+            <strong class="upstream-speed">-</strong>
+            <span class="meta upstream-detail">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Storage</span>
+            <strong class="storage-used">-</strong>
+            <span class="meta storage-free">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Services</span>
+            <strong class="service-score">-</strong>
+            <span class="meta generated-at">-</span>
+          </div>
+        </section>
+
+        <div class="progress-shell"><div class="progress-bar"></div></div>
+
+        <section class="compact-section">
+          <div class="section-head"><span>Mirror Set</span></div>
+          <div class="plan-line"></div>
+          <div class="source-line meta"></div>
+        </section>
+
+        <section class="compact-section">
+          <div class="section-head"><span>Repositories</span><span class="coverage-count meta">-</span></div>
+          <ul class="coverage-list list"></ul>
+        </section>
+
+        <section class="compact-section">
+          <div class="section-head"><span>Services</span><span class="meta">openrc</span></div>
+          <ul class="service-list list"></ul>
+        </section>
+
+        <section class="compact-section">
+          <div class="section-head"><span>Events</span><span class="meta">tail</span></div>
+          <pre class="events terminal"></pre>
+        </section>
+
+        <section class="compact-section client-section">
+          <div class="section-head"><span>Client Config</span><a class="repo-link" href="#">repo</a></div>
+          <ul class="client-list list"></ul>
+        </section>
+      </div>
+    </article>
+  </template>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

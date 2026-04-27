@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="Parallel multi-OS mirror sync runner"
+command=/usr/local/sbin/mirrors-sync-loop.sh
+pidfile=/run/mirrors-sync.pid
+command_background=true
+
+depend() {
+    need net
+    use dns logger
+}

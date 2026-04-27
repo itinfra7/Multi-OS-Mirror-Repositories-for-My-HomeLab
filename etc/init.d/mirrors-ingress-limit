@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="Aggregate inbound bandwidth limit for mirror upstream downloads"
+
+depend() {
+    need net
+    before mirrors-sync
+}
+
+start() {
+    ebegin "Applying configured aggregate mirror ingress bandwidth limit state"
+    /usr/local/sbin/mirrors-ingress-limit.sh start
+    eend $?
+}
+
+stop() {
+    ebegin "Removing aggregate mirror ingress bandwidth limit"
+    /usr/local/sbin/mirrors-ingress-limit.sh clear
+    eend $?
+}
+
+status() {
+    /usr/local/sbin/mirrors-ingress-limit.sh status
+}

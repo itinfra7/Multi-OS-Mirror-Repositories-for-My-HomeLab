@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="OpenBSD amd64 mirror monitor collector"
+command=/usr/local/sbin/openbsd-monitor-loop.sh
+pidfile=/run/openbsd-monitor.pid
+command_background=true
+
+depend() {
+    need net nginx
+    use logger
+}

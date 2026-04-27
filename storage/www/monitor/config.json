@@ -1,0 +1,34 @@
+{
+  "repositories": [
+    {
+      "id": "alpine",
+      "name": "Alpine Linux",
+      "repoUrl": "/alpine/",
+      "apiUrl": "/api/alpine/status.json"
+    },
+    {
+      "id": "opencsw",
+      "name": "Solaris 10 OpenCSW",
+      "repoUrl": "/opencsw/",
+      "apiUrl": "/api/opencsw/status.json"
+    },
+    {
+      "id": "openbsd",
+      "name": "OpenBSD amd64",
+      "repoUrl": "/openbsd/",
+      "apiUrl": "/api/openbsd/status.json"
+    },
+    {
+      "id": "omnios",
+      "name": "OmniOS LTS",
+      "repoUrl": "/omnios/",
+      "apiUrl": "/api/omnios/status.json"
+    },
+    {
+      "id": "openindiana",
+      "name": "OpenIndiana Hipster",
+      "repoUrl": "/openindiana/",
+      "apiUrl": "/api/openindiana/status.json"
+    }
+  ]
+}

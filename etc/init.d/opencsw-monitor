@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="OpenCSW mirror monitor collector"
+command=/usr/local/sbin/opencsw-monitor-loop.sh
+pidfile=/run/opencsw-monitor.pid
+command_background=true
+
+depend() {
+    need net nginx
+    use dns logger
+}

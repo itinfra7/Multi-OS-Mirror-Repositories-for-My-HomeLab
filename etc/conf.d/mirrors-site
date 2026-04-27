@@ -1,0 +1,7 @@
+# Credits: itinfra7 from GitHub
+# Public origin used in generated client examples.
+# Leave empty to auto-detect from the container's primary IPv4 address.
+# Set explicitly when publishing through DNS or a reverse proxy, for example:
+# MIRRORS_PUBLIC_URL="https://mirror.example.org"
+MIRRORS_PUBLIC_URL=""
+MIRRORS_PUBLIC_SCHEME="http"

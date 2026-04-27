@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="Alpine mirror monitor collector"
+command=/usr/local/sbin/alpine-mirror-monitor-loop.sh
+pidfile=/run/alpine-mirror-monitor.pid
+command_background=true
+
+depend() {
+    need net nginx
+    use logger
+}

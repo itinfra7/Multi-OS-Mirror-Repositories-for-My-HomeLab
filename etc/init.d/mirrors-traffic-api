@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="Mirror traffic speed and bandwidth limit control API"
+command=/usr/local/sbin/mirrors-traffic-api.py
+pidfile=/run/mirrors-traffic-api.pid
+command_background=true
+
+depend() {
+    need net
+    use logger
+    after mirrors-ingress-limit
+}

@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="omnios-lts-sync status holder; real sync is serialized by mirrors-sync"
+command=/usr/local/sbin/mirror-idle-service.sh
+command_args="omnios-lts-sync"
+pidfile=/run/omnios-lts-sync.pid
+command_background=true
+
+depend() {
+    need net
+    use logger
+}

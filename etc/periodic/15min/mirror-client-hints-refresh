@@ -1,0 +1,3 @@
+#!/bin/sh
+# Credits: itinfra7 from GitHub
+/usr/local/sbin/mirror-client-hints-refresh.sh >/dev/null 2>&1 || true
