@@ -1,4 +1,3 @@
-<img width="1912" height="2771" alt="Monitor" src="https://github.com/user-attachments/assets/7a474993-3482-4082-a699-605a1019cdd6" />
 # Multi-OS Mirror Repositories for My HomeLab
 
 Credit: `itinfra7 from GitHub`
@@ -32,3 +31,5 @@ It is a single-server mirror setup for several OS/package repositories with one 
 - iproute2-tc: 6.17.0-r0
 - coreutils: 9.8-r1
 - util-linux: 2.41.4-r0
+
+<img width="1912" height="2771" alt="Monitor" src="https://github.com/user-attachments/assets/7a474993-3482-4082-a699-605a1019cdd6" />
