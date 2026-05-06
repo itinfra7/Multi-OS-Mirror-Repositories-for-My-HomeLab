@@ -1,7 +1,7 @@
 # Multi-OS Mirror Repositories for My HomeLab
 
-Credit: `itinfra7 from GitHub`
-
+<img width="1912" height="2771" alt="Monitor" src="https://github.com/user-attachments/assets/7a474993-3482-4082-a699-605a1019cdd6" />
+<br>
 This is a personal HomeLab mirror repository server source backup.
 
 I made this for my own use and uploaded it mainly as a backup. If you already know what this does and need something like it, feel free to read it, reference it, or adapt it.
@@ -32,4 +32,4 @@ It is a single-server mirror setup for several OS/package repositories with one 
 - coreutils: 9.8-r1
 - util-linux: 2.41.4-r0
 
-<img width="1912" height="2771" alt="Monitor" src="https://github.com/user-attachments/assets/7a474993-3482-4082-a699-605a1019cdd6" />
+Credit: `itinfra7 from GitHub`
