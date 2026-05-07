@@ -901,12 +901,12 @@ function clientApplyRows(config, data) {
       {
         title: "Permanent file: /etc/opt/csw/pkgutil.conf",
         meta: "latest published OpenCSW current catalog",
-        code: `mirror=${origin}/opencsw/current/`,
+        code: `mirror=${origin}/opencsw/current/unstable/`,
       },
       {
         title: "Apply command",
         meta: "refresh pkgutil catalog after editing the file",
-        code: `mkdir -p /etc/opt/csw\nprintf '%s\\n' 'mirror=${origin}/opencsw/current/' > /etc/opt/csw/pkgutil.conf\n/opt/csw/bin/pkgutil -U`,
+        code: `mkdir -p /etc/opt/csw\nprintf '%s\\n' 'mirror=${origin}/opencsw/current/unstable/' > /etc/opt/csw/pkgutil.conf\n/opt/csw/bin/pkgutil -U`,
       },
     ];
   }
@@ -940,7 +940,7 @@ function clientApplyRows(config, data) {
       {
         title: "Permanent IPS publisher commands",
         meta: `moving latest-lts alias, currently ${latest}`,
-        code: `pkg set-publisher -G '*' -g ${origin}/omnios/${latestAlias}/core omnios\npkg set-publisher -G '*' -g ${origin}/omnios/${latestAlias}/extra extra.omnios\npkg set-publisher -G '*' -g ${origin}/omnios/localhostomnios localhostomnios\npkg refresh --full`,
+        code: `pkg set-publisher -G '*' -M '*' -g ${origin}/omnios/${latestAlias}/core omnios\npkg set-publisher -G '*' -M '*' -g ${origin}/omnios/${latestAlias}/extra extra.omnios\npkg set-publisher -G '*' -M '*' -g ${origin}/omnios/localhostomnios localhostomnios\npkg refresh --full`,
       },
       {
         title: "Verify",
@@ -955,7 +955,7 @@ function clientApplyRows(config, data) {
       {
         title: "Permanent IPS publisher commands",
         meta: "OpenIndiana Hipster is rolling; localhostoih is third-party SFE",
-        code: `pkg set-publisher -G '*' -g ${origin}/openindiana/hipster openindiana.org\npkg set-publisher -G '*' -g ${origin}/openindiana/hipster-encumbered hipster-encumbered\npkg set-publisher -G '*' -g ${origin}/openindiana/localhostoih localhostoih\npkg refresh --full`,
+        code: `pkg set-publisher -G '*' -M '*' -g ${origin}/openindiana/hipster openindiana.org\npkg set-publisher -G '*' -M '*' -g ${origin}/openindiana/hipster-encumbered hipster-encumbered\npkg set-publisher -G '*' -M '*' -g ${origin}/openindiana/localhostoih localhostoih\npkg refresh --full`,
       },
       {
         title: "Verify",

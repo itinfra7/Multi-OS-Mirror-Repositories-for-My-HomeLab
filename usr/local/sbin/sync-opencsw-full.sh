@@ -19,6 +19,16 @@ mkdir -p /run/lock "$INCOMING" "$RELEASES" "$LOGS"
 printf '%s|start|source=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SRC" >>"$EVENT_LOG"
 : >"$RSYNC_LOG"
 
+add_pkgutil_compat_links() {
+  root="$1"
+  for arch in i386 sparc; do
+    if [ -d "$root/unstable/$arch" ]; then
+      rm -rf "$root/$arch"
+      ln -s "unstable/$arch" "$root/$arch"
+    fi
+  done
+}
+
 cleanup() {
   rm -rf "$WORK" "$TMPREL"
 }
@@ -47,6 +57,7 @@ else
 fi
 
 if [ "$RSYNC_RC" -eq 0 ]; then
+  add_pkgutil_compat_links "$WORK"
   rm -rf "$INCOMING"
   mv "$WORK" "$INCOMING"
   cp -al "$INCOMING" "$TMPREL"

@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+# Credits: itinfra7 from GitHub
+
+description="IPS search proxy for mirrored OmniOS and OpenIndiana repositories"
+command=/usr/local/sbin/ips-search-proxy.py
+pidfile=/run/ips-search-proxy.pid
+command_background=true
+
+depend() {
+    need net
+    use logger
+}

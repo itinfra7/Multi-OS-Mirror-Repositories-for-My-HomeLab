@@ -32,6 +32,7 @@ SFE_REPO = {
     "base_url": "http://sfe.opencsw.org/localhostomnios",
     "label": "SFE IPS Packages for OmniOS",
 }
+SUPPORTED_VERSION_LINES = ["catalog 0 1", "file 0", "manifest 0", "publisher 0", "search 0 1", "status 0", "versions 0"]
 CONNECT_TIMEOUT = "30"
 PAYLOAD_WORKERS = max(1, int(os.environ.get("OMNIOS_PAYLOAD_WORKERS", "64")))
 DOWNLOAD_RETRIES = max(1, int(os.environ.get("OMNIOS_DOWNLOAD_RETRIES", "5")))
@@ -83,6 +84,26 @@ def fetch_json(url, timeout=180):
     return json.loads(fetch_text(url, timeout=timeout))
 
 
+def local_lts_versions():
+    versions = []
+    state_path = BASE / ".mirror-state.json"
+    try:
+        state = json.loads(state_path.read_text())
+        for key in ("latest", "previous"):
+            value = state.get(key)
+            if isinstance(value, str) and re.fullmatch(r"r151[0-9]{3}", value):
+                versions.append(value)
+    except Exception:
+        pass
+    try:
+        for item in BASE.iterdir():
+            if item.is_dir() and re.fullmatch(r"r151[0-9]{3}", item.name):
+                versions.append(item.name)
+    except Exception:
+        pass
+    return sorted(set(versions), key=lambda item: int(item[1:]), reverse=True)
+
+
 def discover_lts():
     try:
         html = fetch_text(SCHEDULE_URL)
@@ -94,7 +115,10 @@ def discover_lts():
             return versions[:2]
     except Exception as exc:
         event("schedule-fallback", repr(exc))
-    return ["r151054", "r151046"]
+    versions = local_lts_versions()
+    if len(versions) >= 2:
+        return versions[:2]
+    raise RuntimeError("could not discover latest two OmniOS LTS releases")
 
 
 def curl_download(url, dest, expected_size=None, force=False):
@@ -231,6 +255,38 @@ def signed_catalog(payload):
     return result
 
 
+def write_versions0(path):
+    header = "pkg-server static"
+    if path.exists():
+        for line in path.read_text(errors="replace").splitlines():
+            if line.startswith("pkg-server "):
+                header = line
+                break
+    path.write_text(header + "\n" + "\n".join(SUPPORTED_VERSION_LINES) + "\n")
+
+
+def catalog0_last_modified(attrs):
+    value = str(attrs.get("last-modified") or attrs.get("created") or now_iso())
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z", value)
+    if match:
+        year, month, day, hour, minute, second, fraction = match.groups()
+        return f"{year}-{month}-{day}T{hour}:{minute}:{second}{fraction or ''}+00:00"
+    return value
+
+
+def write_catalog0(path, selected_versions, attrs):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"S Last-Modified: {catalog0_last_modified(attrs)}",
+        "S prefix: CRSV",
+        f"S npkgs: {len(selected_versions)}",
+    ]
+    for name, version in sorted(selected_versions.items()):
+        fmri = name if name.startswith("pkg:/") else f"pkg:/{name}"
+        lines.append(f"V {fmri}@{version}")
+    path.write_text("\n".join(lines) + "\n")
+
+
 def newest_catalog_versions(base_catalog, publisher):
     selected = {}
     for name, versions in base_catalog.get(publisher, {}).items():
@@ -296,7 +352,10 @@ def download_sfe_control_files(repo_root):
     attrs["updates"] = {}
     attrs["package-count"] = len(selected_versions)
     attrs["package-version-count"] = len(selected_versions)
+    attrs = signed_catalog(attrs)
     write_json(repo_root / "catalog/1/catalog.attrs", attrs)
+    write_catalog0(repo_root / "catalog/0", selected_versions, attrs)
+    write_versions0(repo_root / "versions/0")
     return selected_versions
 
 
@@ -306,13 +365,10 @@ def write_client_hints(latest):
             [
                 "# OmniOS IPS publisher examples for this internal mirror.",
                 f"# latest-lts currently points to {latest}.",
-                f"pkg set-publisher -g {SERVER_URL}/latest-lts/core omnios",
-                f"pkg set-publisher -g {SERVER_URL}/latest-lts/extra extra.omnios",
-                f"pkg set-publisher -O {SERVER_URL}/latest-lts/core omnios",
-                f"pkg set-publisher -O {SERVER_URL}/latest-lts/extra extra.omnios",
-                "# Optional third-party SFE publisher for OmniOS.",
-                f"pkg set-publisher -g {SERVER_URL}/localhostomnios localhostomnios",
-                f"pkg set-publisher -O {SERVER_URL}/localhostomnios localhostomnios",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/latest-lts/core omnios",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/latest-lts/extra extra.omnios",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/localhostomnios localhostomnios",
+                "pkg refresh --full",
                 "",
             ]
         )
@@ -349,6 +405,10 @@ def download_control_files(release, repo, publisher, repo_root):
     for control in ["versions/0", "publisher/0", "status/0"]:
         progress("syncing", release=release, repo=repo, current=control)
         curl_download(f"{base_url}/{control}", repo_root / control, force=True)
+
+    progress("syncing", release=release, repo=repo, current="catalog/0")
+    curl_download(f"{base_url}/catalog/0", repo_root / "catalog/0", force=True)
+    write_versions0(repo_root / "versions/0")
 
     attrs_path = repo_root / "catalog/1/catalog.attrs"
     progress("syncing", release=release, repo=repo, current="catalog/1/catalog.attrs")

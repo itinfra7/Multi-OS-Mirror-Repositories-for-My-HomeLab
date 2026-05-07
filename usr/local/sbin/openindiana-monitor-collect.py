@@ -543,9 +543,9 @@ def scan_mirror(state, proc, progress):
 
 def client_hints():
     return [
-        f"pkg set-publisher -G '*' -g {SERVER_URL}/hipster openindiana.org",
-        f"pkg set-publisher -G '*' -g {SERVER_URL}/hipster-encumbered hipster-encumbered",
-        f"pkg set-publisher -G '*' -g {SERVER_URL}/localhostoih localhostoih",
+        f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/hipster openindiana.org",
+        f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/hipster-encumbered hipster-encumbered",
+        f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/localhostoih localhostoih",
         "pkg refresh --full",
     ]
 

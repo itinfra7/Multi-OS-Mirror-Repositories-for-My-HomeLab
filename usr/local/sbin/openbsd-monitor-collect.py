@@ -402,9 +402,36 @@ def part_status(version, part_name, info, progress):
         return "ready"
     if part_name in {"packages_stable", "syspatch", "patches"}:
         return "optional"
-    if phase not in {"complete", "idle", "error"}:
+    if phase not in {"complete", "idle", "error", "failed"}:
         return "queued"
     return "missing"
+
+
+def mandatory_versions_ready(state, mirror_scan):
+    required = [state.get("latest"), state.get("previous")]
+    releases = {release.get("version"): release for release in mirror_scan.get("releases", [])}
+    for version in [item for item in required if item]:
+        release = releases.get(version)
+        if not release:
+            return False
+        parts = release.get("parts", {})
+        for part_name in ("release", "packages"):
+            part = parts.get(part_name, {})
+            if part.get("status") != "ready" or int(part.get("files") or 0) <= 0 or int(part.get("bytes") or 0) <= 0:
+                return False
+    return True
+
+
+def sync_status(state, process, progress, mirror_scan=None):
+    if process.get("running"):
+        return "running"
+    status = str(state.get("sync_status") or "").lower()
+    phase = str(progress.get("phase") or "").lower()
+    if status in {"failed", "error"} or phase in {"failed", "error"}:
+        return "failed"
+    if status == "complete" and mirror_scan is not None and not mandatory_versions_ready(state, mirror_scan):
+        return "failed"
+    return "idle"
 
 
 def discover_versions(state):
@@ -484,12 +511,26 @@ def last_events():
     return [line for line in text.splitlines() if line.strip()][-50:]
 
 
+def latest_local_version():
+    try:
+        versions = [
+            entry.name for entry in BASE.iterdir()
+            if entry.is_dir() and re.fullmatch(r"^[0-9]+[.][0-9]+$", entry.name)
+        ]
+        versions.sort(key=lambda item: [int(part) for part in item.split(".")])
+        return versions[-1] if versions else None
+    except OSError:
+        return None
+
+
 def client_hints(state):
     text = read_text(CLIENT_HINT_PATH).strip()
     if text:
         return text.splitlines()
-    latest = state.get("latest") or "7.8"
     base = repo_url("openbsd")
+    latest = state.get("latest") or latest_local_version()
+    if not latest:
+        return [base]
     return [f"{base}/{latest}/{ARCH}/", f"{base}/{latest}/packages/{ARCH}/"]
 
 
@@ -520,7 +561,7 @@ def main():
         "system": {"cpu": cpu_snapshot(cache.get("previous_cpu_times", {}), cache.get("cpu_times", {})), "memory": resources["memory"], "swap": resources["swap"]},
         "storage": statvfs(str(BASE)),
         "mirror": {"base": str(BASE), "arch": ARCH, "state": state, "client_hints": client_hints(state), **cache["mirror_scan"]},
-        "sync": {"status": "running" if proc.get("running") else "idle", "process": proc, "progress": progress, "rsync": rsync_progress, "estimate": estimate_data, "upstream_speed": upstream_speed_snapshot(proc, estimate_data.get("speed") or rsync_progress.get("speed"), progress.get("current")), "events": last_events(), "rsync_log_tail": rsync_progress.get("raw_tail", [])},
+        "sync": {"status": sync_status(state, proc, progress, cache["mirror_scan"]), "process": proc, "progress": progress, "rsync": rsync_progress, "estimate": estimate_data, "upstream_speed": upstream_speed_snapshot(proc, estimate_data.get("speed") or rsync_progress.get("speed"), progress.get("current")), "events": last_events(), "rsync_log_tail": rsync_progress.get("raw_tail", [])},
         "services": {"nginx": service_state("nginx"), "crond": service_state("crond"), "sshd": service_state("sshd"), "openbsd-monitor": service_state("openbsd-monitor"), "openbsd-sync": service_state("openbsd-sync")},
     }
     tmp = STATUS_PATH.with_suffix(".json.tmp")

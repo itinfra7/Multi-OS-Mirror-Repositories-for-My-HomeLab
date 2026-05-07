@@ -30,6 +30,7 @@ MANIFEST_WORKERS = max(1, int(os.environ.get("OPENINDIANA_MANIFEST_WORKERS", "24
 PAYLOAD_WORKERS = max(1, int(os.environ.get("OPENINDIANA_PAYLOAD_WORKERS", "64")))
 MAX_PAYLOAD_FUTURES = max(PAYLOAD_WORKERS * 16, int(os.environ.get("OPENINDIANA_MAX_PAYLOAD_FUTURES", "2048")))
 PROGRESS_LOCK = threading.Lock()
+SUPPORTED_VERSION_LINES = ["catalog 0 1", "file 0", "manifest 0", "publisher 0", "search 0 1", "status 0", "versions 0"]
 
 REPOS = {
     "hipster": {
@@ -231,9 +232,9 @@ def write_client_hints():
                 "# OpenIndiana Hipster IPS publisher examples for this internal mirror.",
                 "# Hipster is rolling; upstream does not expose separate latest/previous IPS repositories.",
                 "# localhostoih is the third-party SFE publisher.",
-                f"pkg set-publisher -G '*' -g {SERVER_URL}/hipster openindiana.org",
-                f"pkg set-publisher -G '*' -g {SERVER_URL}/hipster-encumbered hipster-encumbered",
-                f"pkg set-publisher -G '*' -g {SERVER_URL}/localhostoih localhostoih",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/hipster openindiana.org",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/hipster-encumbered hipster-encumbered",
+                f"pkg set-publisher -G '*' -M '*' -g {SERVER_URL}/localhostoih localhostoih",
                 "pkg refresh --full",
                 "",
             ]
@@ -241,9 +242,23 @@ def write_client_hints():
     )
 
 
+def write_versions0(path, catalog0_available=True):
+    header = "pkg-server static"
+    if path.exists():
+        for line in path.read_text(errors="replace").splitlines():
+            if line.startswith("pkg-server "):
+                header = line
+                break
+    lines = list(SUPPORTED_VERSION_LINES)
+    if not catalog0_available:
+        lines[0] = "catalog 1"
+    path.write_text(header + "\n" + "\n".join(lines) + "\n")
+
+
 def download_control_files(repo_id, spec, repo_root):
     base_url = spec["base_url"]
     controls = ["versions/0", "publisher/0", "status/0", "catalog/0", "catalog/1/catalog.attrs"]
+    catalog0_available = True
     for idx, control in enumerate(controls, start=1):
         progress("control", repo=repo_id, current=control, done=idx - 1, total=len(controls), upstream_speed_bps=0)
         def hook(done_bytes, elapsed, control=control, idx=idx):
@@ -252,9 +267,11 @@ def download_control_files(repo_id, spec, repo_root):
             download(f"{base_url}/{control}", repo_root / control, force=True, progress_hook=hook)
         except HTTPError as exc:
             if control == "catalog/0":
+                catalog0_available = False
                 event("control-skip", repo_id, control, f"http={exc.code}")
             else:
                 raise
+    write_versions0(repo_root / "versions/0", catalog0_available)
 
     attrs = read_json(repo_root / "catalog/1/catalog.attrs")
     catalog_files = sorted(set(attrs.get("parts", {})) | set(attrs.get("updates", {})))

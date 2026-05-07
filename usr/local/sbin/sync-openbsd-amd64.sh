@@ -31,7 +31,31 @@ progress() {
   printf '%s|%s|%s|%s|%s|%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$phase" "$done" "$total" "$current" "$message" >"$PROGRESS_FILE"
 }
 
-list_versions() {
+write_state() {
+  status="$1"
+  last_sync="$2"
+  cat >"$STATE_FILE" <<EOF_STATE
+LATEST=${latest:-unknown}
+PREVIOUS=${previous:-unknown}
+ARCH=$ARCH
+SOURCE=$SRC
+LAST_SYNC=$last_sync
+SYNC_STATUS=$status
+EOF_STATE
+}
+
+on_exit() {
+  rc=$?
+  [ "$rc" -eq 0 ] && return 0
+  set +e
+  trap - EXIT
+  event "fatal|rc=$rc|phase=${CURRENT_PHASE:-unknown}"
+  write_state failed "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+  progress failed "${done_count:-0}" "${total:-0}" "${CURRENT_PHASE:-unknown}" "sync failed rc=$rc"
+  exit "$rc"
+}
+
+list_candidate_versions() {
   rsync --no-motd --list-only "$SRC/" 2>/dev/null \
     | awk '{print $NF}' \
     | grep -E '^[0-9]+[.][0-9]+/?$' \
@@ -41,6 +65,22 @@ list_versions() {
 
 remote_exists() {
   rsync --no-motd --list-only "$1" >/dev/null 2>&1
+}
+
+release_ready() {
+  version="$1"
+  remote_exists "$SRC/$version/$ARCH/SHA256.sig" \
+    && remote_exists "$SRC/$version/packages/$ARCH/SHA256.sig"
+}
+
+list_versions() {
+  for version in $(list_candidate_versions); do
+    if release_ready "$version"; then
+      printf '%s\n' "$version"
+    else
+      event "version-skip|$version|missing-release-or-packages-$ARCH"
+    fi
+  done
 }
 
 rsync_common() {
@@ -57,15 +97,17 @@ sync_dir() {
 
   mkdir -p "$dst"
   : >"$RSYNC_LOG"
+  CURRENT_PHASE="$label"
   progress syncing "$done" "$total" "$label" "$src"
   event "sync-start|$label|$src"
   if rsync_common "$src" "$dst" >"$RSYNC_LOG" 2>&1; then
     event "sync-ok|$label"
     return 0
+  else
+    rc=$?
+    event "sync-fail|$label|rc=$rc"
+    return "$rc"
   fi
-  rc=$?
-  event "sync-fail|$label|rc=$rc"
-  return "$rc"
 }
 
 sync_optional_dir() {
@@ -91,6 +133,7 @@ sync_release_metadata() {
   dst="$BASE/$version"
   mkdir -p "$dst"
   : >"$RSYNC_LOG"
+  CURRENT_PHASE="$version/release-metadata"
   progress syncing "$done" "$total" "$version/release-metadata" "$SRC/$version/"
   event "sync-start|$version/release-metadata|$SRC/$version/"
   if rsync -a --timeout=300 --contimeout=60 --no-motd --outbuf=L \
@@ -104,21 +147,36 @@ sync_release_metadata() {
       "$SRC/$version/" "$dst/" >"$RSYNC_LOG" 2>&1; then
     event "sync-ok|$version/release-metadata"
     return 0
+  else
+    rc=$?
+    event "sync-fail|$version/release-metadata|rc=$rc"
+    return "$rc"
   fi
-  rc=$?
-  event "sync-fail|$version/release-metadata|rc=$rc"
-  return "$rc"
 }
 
 sync_top_metadata() {
   done="$1"
   total="$2"
+  CURRENT_PHASE=top-metadata
   progress syncing "$done" "$total" top-metadata "$SRC/"
   : >"$RSYNC_LOG"
   for file in timestamp ftplist; do
     rsync -a --timeout=300 --contimeout=60 --no-motd "$SRC/$file" "$BASE/$file" >>"$RSYNC_LOG" 2>&1 || true
   done
   event "sync-ok|top-metadata"
+}
+
+verify_local_versions() {
+  for version in $1; do
+    CURRENT_PHASE="verify-$version"
+    for file in "$BASE/$version/$ARCH/SHA256.sig" "$BASE/$version/packages/$ARCH/SHA256.sig"; do
+      if [ ! -s "$file" ]; then
+        event "verify-fail|$version|missing-or-empty|$file"
+        return 1
+      fi
+    done
+    event "verify-ok|$version"
+  done
 }
 
 cleanup_old() {
@@ -147,6 +205,7 @@ if ! flock -n 9; then
   event "already-running"
   exit 0
 fi
+trap on_exit EXIT
 
 event "run-start|source=$SRC|arch=$ARCH"
 
@@ -160,15 +219,18 @@ if [ -z "$latest" ] || [ -z "$previous" ] || [ "$latest" = "$previous" ]; then
 fi
 
 printf '%s\n' "$versions" >"$KEEP_FILE"
-cat >"$STATE_FILE" <<EOF_STATE
-LATEST=$latest
-PREVIOUS=$previous
-ARCH=$ARCH
-SOURCE=$SRC
-LAST_SYNC=pending
-SYNC_STATUS=running
-EOF_STATE
-if [ -d "$BASE/$previous/$ARCH" ] && [ ! -d "$BASE/$latest/$ARCH" ]; then
+write_state running pending
+if [ -d "$BASE/$latest/$ARCH" ] && [ -d "$BASE/$latest/packages/$ARCH" ]; then
+  cat >"$BASE/CLIENT_URLS.txt" <<EOF_HINT
+# OpenBSD install/upgrade mirror examples.
+# Server: $PUBLIC_HOST
+# Server directory for installer: /openbsd
+# Current ready release while the mirror is syncing:
+${PUBLIC_URL}/openbsd/$latest/$ARCH/
+${PUBLIC_URL}/openbsd/$latest/packages/$ARCH/
+${PUBLIC_URL}/openbsd/syspatch/$latest/$ARCH/
+EOF_HINT
+elif [ -d "$BASE/$previous/$ARCH" ]; then
   cat >"$BASE/CLIENT_URLS.txt" <<EOF_HINT
 # OpenBSD install/upgrade mirror examples.
 # Server: $PUBLIC_HOST
@@ -204,16 +266,10 @@ for version in $versions; do
   done_count=$((done_count + 1))
 done
 
+verify_local_versions "$versions"
 cleanup_old "$versions"
 
-cat >"$STATE_FILE" <<EOF_STATE
-LATEST=$latest
-PREVIOUS=$previous
-ARCH=$ARCH
-SOURCE=$SRC
-LAST_SYNC=$(date '+%Y-%m-%d %H:%M:%S %Z')
-SYNC_STATUS=complete
-EOF_STATE
+write_state complete "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
 cat >"$BASE/CLIENT_URLS.txt" <<EOF_HINT
 # OpenBSD install/upgrade mirror examples.
@@ -226,3 +282,4 @@ EOF_HINT
 
 progress complete "$total" "$total" "$latest/$previous" "sync complete"
 event "run-complete|latest=$latest|previous=$previous"
+trap - EXIT

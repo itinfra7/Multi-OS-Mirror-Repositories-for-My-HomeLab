@@ -642,6 +642,8 @@ def cached_sfe_incomplete(mirror_scan):
 
 def refresh_sfe_snapshot(mirror_scan, progress, proc):
     active_sfe = proc.get("running") and progress.get("release") == "sfe" and progress.get("repo") == SFE_REPO
+    if not active_sfe:
+        return mirror_scan
     completed_sfe_changed_cache = (BASE / SFE_REPO / ".repo-complete.json").exists() and cached_sfe_incomplete(mirror_scan)
     if not (active_sfe or completed_sfe_changed_cache):
         return mirror_scan
@@ -722,9 +724,14 @@ def client_hints(state):
     text = read_text(CLIENT_HINT_PATH).strip()
     if text:
         return text.splitlines()
-    latest = state.get("latest") or "r151054"
+    latest = state.get("latest") or "latest-lts"
     base = repo_url("omnios")
-    return [f"pkg set-publisher -g {base}/{latest}/core omnios", f"pkg set-publisher -g {base}/{latest}/extra extra.omnios"]
+    return [
+        f"pkg set-publisher -G '*' -M '*' -g {base}/{latest}/core omnios",
+        f"pkg set-publisher -G '*' -M '*' -g {base}/{latest}/extra extra.omnios",
+        f"pkg set-publisher -G '*' -M '*' -g {base}/localhostomnios localhostomnios",
+        "pkg refresh --full",
+    ]
 
 
 def main():
