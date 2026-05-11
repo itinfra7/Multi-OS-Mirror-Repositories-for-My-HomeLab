@@ -29,6 +29,7 @@ READ_RETRIES = int(os.environ.get("OPENINDIANA_READ_RETRIES", "5"))
 MANIFEST_WORKERS = max(1, int(os.environ.get("OPENINDIANA_MANIFEST_WORKERS", "24")))
 PAYLOAD_WORKERS = max(1, int(os.environ.get("OPENINDIANA_PAYLOAD_WORKERS", "64")))
 MAX_PAYLOAD_FUTURES = max(PAYLOAD_WORKERS * 16, int(os.environ.get("OPENINDIANA_MAX_PAYLOAD_FUTURES", "2048")))
+OPTIONAL_PREFLIGHT_TIMEOUT = int(os.environ.get("OPENINDIANA_OPTIONAL_PREFLIGHT_TIMEOUT", "10"))
 PROGRESS_LOCK = threading.Lock()
 SUPPORTED_VERSION_LINES = ["catalog 0 1", "file 0", "manifest 0", "publisher 0", "search 0 1", "status 0", "versions 0"]
 
@@ -47,6 +48,7 @@ REPOS = {
         "publisher": "localhostoih",
         "base_url": "http://sfe.opencsw.org/localhostoih",
         "label": "SFE OpenIndiana Hipster Third-Party",
+        "optional": True,
     },
 }
 
@@ -171,6 +173,34 @@ def fetch_json(url):
 
 def read_json(path):
     return json.loads(path.read_text())
+
+
+def completed_repo_result(repo_id, spec, warning):
+    marker = BASE / repo_id / ".repo-complete.json"
+    if not marker.exists():
+        return None
+    try:
+        data = read_json(marker)
+    except Exception:
+        data = {}
+    payload = dict(data) if isinstance(data, dict) else {}
+    payload.update(
+        {
+            "publisher": payload.get("publisher", spec["publisher"]),
+            "source": payload.get("source", spec["base_url"]),
+            "completed_at": payload.get("completed_at"),
+            "stale": True,
+            "warning": warning,
+        }
+    )
+    return payload
+
+
+def check_optional_upstream(repo_id, spec):
+    if not spec.get("optional"):
+        return
+    with urlopen(request(f"{spec['base_url']}/versions/0"), timeout=OPTIONAL_PREFLIGHT_TIMEOUT) as response:
+        response.read(1)
 
 
 def hardlink_or_copy(source, alias, manifest_root, desired):
@@ -594,13 +624,27 @@ def main():
     progress("starting", repo="", current="init", upstream_speed_bps=0)
     try:
         results = {}
+        warnings = []
         for repo_id, spec in REPOS.items():
-            results[repo_id] = sync_repo(repo_id, spec)
-            state.update({"sync_status": "running", "repos": results})
+            try:
+                check_optional_upstream(repo_id, spec)
+                results[repo_id] = sync_repo(repo_id, spec)
+            except Exception as exc:
+                if not spec.get("optional"):
+                    raise
+                warning = f"{repo_id} upstream unavailable; serving last completed mirror"
+                fallback = completed_repo_result(repo_id, spec, warning)
+                if fallback is None:
+                    raise
+                event("repo-stale", repo_id, repr(exc))
+                warnings.append(f"{warning}: {repr(exc)}")
+                progress("warning", repo=repo_id, current="upstream unavailable", warning=warning, upstream_speed_bps=0)
+                results[repo_id] = fallback
+            state.update({"sync_status": "running", "repos": results, "warnings": warnings})
             write_json(STATE_PATH, state)
-        state.update({"sync_status": "complete", "last_sync": now_iso(), "repos": results})
+        state.update({"sync_status": "complete", "last_sync": now_iso(), "repos": results, "warnings": warnings})
         write_json(STATE_PATH, state)
-        progress("complete", repo="", current="done", upstream_speed_bps=0, payloads_done=0, payloads_known=0)
+        progress("complete", repo="", current="done", upstream_speed_bps=0, payloads_done=0, payloads_known=0, warnings=warnings)
         event("sync-complete")
     except Exception as exc:
         state.update({"sync_status": "error", "last_error": repr(exc), "failed_at": now_iso()})

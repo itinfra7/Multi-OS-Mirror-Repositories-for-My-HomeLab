@@ -38,6 +38,7 @@ PAYLOAD_WORKERS = max(1, int(os.environ.get("OMNIOS_PAYLOAD_WORKERS", "64")))
 DOWNLOAD_RETRIES = max(1, int(os.environ.get("OMNIOS_DOWNLOAD_RETRIES", "5")))
 CURL_LOW_SPEED_LIMIT = os.environ.get("OMNIOS_CURL_LOW_SPEED_LIMIT", "1024")
 CURL_LOW_SPEED_TIME = os.environ.get("OMNIOS_CURL_LOW_SPEED_TIME", "300")
+SFE_PREFLIGHT_TIMEOUT = int(os.environ.get("OMNIOS_SFE_PREFLIGHT_TIMEOUT", "10"))
 
 
 def now_iso():
@@ -179,6 +180,28 @@ def payload_speed(done_bytes, started_at):
 
 def read_json(path):
     return json.loads(path.read_text())
+
+
+def completed_repo_result(repo_root, warning):
+    marker = repo_root / ".repo-complete.json"
+    if not marker.exists():
+        return None
+    try:
+        data = read_json(marker)
+    except Exception:
+        data = {}
+    result = data.get("result") if isinstance(data, dict) else None
+    payload = dict(result) if isinstance(result, dict) else {}
+    payload.update(
+        {
+            "publisher": data.get("publisher", SFE_REPO["publisher"]) if isinstance(data, dict) else SFE_REPO["publisher"],
+            "source": data.get("source", SFE_REPO["base_url"]) if isinstance(data, dict) else SFE_REPO["base_url"],
+            "completed_at": data.get("completed_at") if isinstance(data, dict) else None,
+            "stale": True,
+            "warning": warning,
+        }
+    )
+    return payload
 
 
 def write_catalog_json(path, payload):
@@ -697,6 +720,21 @@ def sync_sfe_repo():
     return result
 
 
+def sync_sfe_repo_optional(warnings):
+    try:
+        fetch_text(f"{SFE_REPO['base_url']}/versions/0", timeout=SFE_PREFLIGHT_TIMEOUT)
+        return sync_sfe_repo()
+    except Exception as exc:
+        warning = f"{SFE_REPO['repo']} upstream unavailable; serving last completed mirror"
+        fallback = completed_repo_result(BASE / SFE_REPO["repo"], warning)
+        if fallback is None:
+            raise
+        event("repo-stale", "sfe", SFE_REPO["repo"], repr(exc))
+        warnings.append(f"{warning}: {repr(exc)}")
+        progress("warning", release="sfe", repo=SFE_REPO["repo"], current="upstream unavailable", warning=warning, upstream_speed_bps=0)
+        return fallback
+
+
 def main():
     fd = acquire_lock()
     BASE.mkdir(parents=True, exist_ok=True)
@@ -724,15 +762,16 @@ def main():
     cleanup_old(set(keep))
 
     results = {}
+    warnings = []
     for release in keep:
         for repo, publisher in REPOS.items():
             results[f"{release}/{repo}"] = sync_repo(release, repo, publisher)
-    results[SFE_REPO["repo"]] = sync_sfe_repo()
+    results[SFE_REPO["repo"]] = sync_sfe_repo_optional(warnings)
 
     cleanup_old(set(keep))
-    state.update({"sync_status": "complete", "last_sync": now_iso(), "results": results})
+    state.update({"sync_status": "complete", "last_sync": now_iso(), "results": results, "warnings": warnings})
     write_json(STATE_PATH, state)
-    progress("complete", keep=keep, results=results)
+    progress("complete", keep=keep, results=results, warnings=warnings)
     event("run-complete", f"latest={latest}", f"previous={previous}")
     os.close(fd)
 
@@ -742,5 +781,11 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         event("fatal", repr(exc))
+        try:
+            state = read_json(STATE_PATH) if STATE_PATH.exists() else {}
+            state.update({"sync_status": "error", "last_error": repr(exc), "failed_at": now_iso()})
+            write_json(STATE_PATH, state)
+        except Exception:
+            pass
         progress("error", error=repr(exc))
         raise
