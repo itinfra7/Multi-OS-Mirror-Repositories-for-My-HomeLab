@@ -29,6 +29,7 @@ READ_RETRIES = int(os.environ.get("OPENINDIANA_READ_RETRIES", "5"))
 MANIFEST_WORKERS = max(1, int(os.environ.get("OPENINDIANA_MANIFEST_WORKERS", "24")))
 PAYLOAD_WORKERS = max(1, int(os.environ.get("OPENINDIANA_PAYLOAD_WORKERS", "64")))
 MAX_PAYLOAD_FUTURES = max(PAYLOAD_WORKERS * 16, int(os.environ.get("OPENINDIANA_MAX_PAYLOAD_FUTURES", "2048")))
+UPSTREAM_PREFLIGHT_TIMEOUT = int(os.environ.get("OPENINDIANA_UPSTREAM_PREFLIGHT_TIMEOUT", "10"))
 OPTIONAL_PREFLIGHT_TIMEOUT = int(os.environ.get("OPENINDIANA_OPTIONAL_PREFLIGHT_TIMEOUT", "10"))
 PROGRESS_LOCK = threading.Lock()
 SUPPORTED_VERSION_LINES = ["catalog 0 1", "file 0", "manifest 0", "publisher 0", "search 0 1", "status 0", "versions 0"]
@@ -196,10 +197,9 @@ def completed_repo_result(repo_id, spec, warning):
     return payload
 
 
-def check_optional_upstream(repo_id, spec):
-    if not spec.get("optional"):
-        return
-    with urlopen(request(f"{spec['base_url']}/versions/0"), timeout=OPTIONAL_PREFLIGHT_TIMEOUT) as response:
+def check_upstream(repo_id, spec):
+    timeout = OPTIONAL_PREFLIGHT_TIMEOUT if spec.get("optional") else UPSTREAM_PREFLIGHT_TIMEOUT
+    with urlopen(request(f"{spec['base_url']}/versions/0"), timeout=timeout) as response:
         response.read(1)
 
 
@@ -627,11 +627,9 @@ def main():
         warnings = []
         for repo_id, spec in REPOS.items():
             try:
-                check_optional_upstream(repo_id, spec)
+                check_upstream(repo_id, spec)
                 results[repo_id] = sync_repo(repo_id, spec)
             except Exception as exc:
-                if not spec.get("optional"):
-                    raise
                 warning = f"{repo_id} upstream unavailable; serving last completed mirror"
                 fallback = completed_repo_result(repo_id, spec, warning)
                 if fallback is None:

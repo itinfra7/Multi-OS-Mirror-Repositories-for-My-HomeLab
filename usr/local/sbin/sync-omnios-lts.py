@@ -38,6 +38,7 @@ PAYLOAD_WORKERS = max(1, int(os.environ.get("OMNIOS_PAYLOAD_WORKERS", "64")))
 DOWNLOAD_RETRIES = max(1, int(os.environ.get("OMNIOS_DOWNLOAD_RETRIES", "5")))
 CURL_LOW_SPEED_LIMIT = os.environ.get("OMNIOS_CURL_LOW_SPEED_LIMIT", "1024")
 CURL_LOW_SPEED_TIME = os.environ.get("OMNIOS_CURL_LOW_SPEED_TIME", "300")
+OFFICIAL_PREFLIGHT_TIMEOUT = int(os.environ.get("OMNIOS_OFFICIAL_PREFLIGHT_TIMEOUT", "10"))
 SFE_PREFLIGHT_TIMEOUT = int(os.environ.get("OMNIOS_SFE_PREFLIGHT_TIMEOUT", "10"))
 
 
@@ -182,7 +183,7 @@ def read_json(path):
     return json.loads(path.read_text())
 
 
-def completed_repo_result(repo_root, warning):
+def completed_repo_result(repo_root, warning, publisher=None, source=None):
     marker = repo_root / ".repo-complete.json"
     if not marker.exists():
         return None
@@ -194,8 +195,8 @@ def completed_repo_result(repo_root, warning):
     payload = dict(result) if isinstance(result, dict) else {}
     payload.update(
         {
-            "publisher": data.get("publisher", SFE_REPO["publisher"]) if isinstance(data, dict) else SFE_REPO["publisher"],
-            "source": data.get("source", SFE_REPO["base_url"]) if isinstance(data, dict) else SFE_REPO["base_url"],
+            "publisher": data.get("publisher", publisher or SFE_REPO["publisher"]) if isinstance(data, dict) else publisher or SFE_REPO["publisher"],
+            "source": data.get("source", source or SFE_REPO["base_url"]) if isinstance(data, dict) else source or SFE_REPO["base_url"],
             "completed_at": data.get("completed_at") if isinstance(data, dict) else None,
             "stale": True,
             "warning": warning,
@@ -563,6 +564,22 @@ def sync_repo(release, repo, publisher):
     return result
 
 
+def sync_repo_optional(release, repo, publisher, warnings):
+    base_url = f"{UPSTREAM}/{release}/{repo}"
+    try:
+        fetch_text(f"{base_url}/versions/0", timeout=OFFICIAL_PREFLIGHT_TIMEOUT)
+        return sync_repo(release, repo, publisher)
+    except Exception as exc:
+        warning = f"{release}/{repo} upstream unavailable; serving last completed mirror"
+        fallback = completed_repo_result(BASE / release / repo, warning, publisher=publisher, source=base_url)
+        if fallback is None:
+            raise
+        event("repo-stale", release, repo, repr(exc))
+        warnings.append(f"{warning}: {repr(exc)}")
+        progress("warning", release=release, repo=repo, current="upstream unavailable", warning=warning, upstream_speed_bps=0)
+        return fallback
+
+
 def manifest_alias_paths(publisher, name, version):
     rel_manifest = Path(*name.split("/")).with_name(name.split("/")[-1] + "@" + version)
     return [
@@ -765,7 +782,7 @@ def main():
     warnings = []
     for release in keep:
         for repo, publisher in REPOS.items():
-            results[f"{release}/{repo}"] = sync_repo(release, repo, publisher)
+            results[f"{release}/{repo}"] = sync_repo_optional(release, repo, publisher, warnings)
     results[SFE_REPO["repo"]] = sync_sfe_repo_optional(warnings)
 
     cleanup_old(set(keep))
