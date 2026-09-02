@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Credits: itinfra7 from GitHub
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -110,8 +111,17 @@ def urlopen_retry(url, timeout=120):
     raise last
 
 
-def download_once(url, dest, tmp, expected_size=None, speed=None, progress_hook=None):
+def sha1_file(path):
+    digest = hashlib.sha1()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_once(url, dest, tmp, expected_size=None, expected_sha1=None, speed=None, progress_hook=None):
     bytes_done = 0
+    digest = hashlib.sha1() if expected_sha1 is not None else None
     started = time.monotonic()
     last_progress = 0.0
     with urlopen_retry(url, timeout=180) as response, tmp.open("wb") as handle:
@@ -120,6 +130,8 @@ def download_once(url, dest, tmp, expected_size=None, speed=None, progress_hook=
             if not chunk:
                 break
             handle.write(chunk)
+            if digest is not None:
+                digest.update(chunk)
             bytes_done += len(chunk)
             if speed is not None:
                 speed["bytes"] += len(chunk)
@@ -134,18 +146,33 @@ def download_once(url, dest, tmp, expected_size=None, speed=None, progress_hook=
     if expected_size is not None and actual != expected_size:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(f"size mismatch for {url}: {actual} != {expected_size}")
+    if digest is not None:
+        actual_sha1 = digest.hexdigest()
+        if actual_sha1 != expected_sha1:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"SHA-1 mismatch for {url}: {actual_sha1} != {expected_sha1}")
     tmp.replace(dest)
     if progress_hook is not None:
         progress_hook(actual, max(time.monotonic() - started, 0.001))
     return actual, "downloaded"
 
 
-def download(url, dest, expected_size=None, force=False, speed=None, progress_hook=None):
+def download(url, dest, expected_size=None, expected_sha1=None, force=False, speed=None, progress_hook=None):
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not force and dest.exists():
-        if expected_size is None and dest.stat().st_size > 0:
+        if expected_sha1 is not None:
+            actual_sha1 = sha1_file(dest)
+            if actual_sha1 == expected_sha1:
+                return 0, "exists"
+            event(
+                "integrity-mismatch",
+                str(dest.relative_to(BASE) if dest.is_relative_to(BASE) else dest),
+                f"expected={expected_sha1}",
+                f"actual={actual_sha1}",
+            )
+        elif expected_size is None and dest.stat().st_size > 0:
             return 0, "exists"
-        if expected_size is not None and dest.stat().st_size == expected_size:
+        elif expected_size is not None and dest.stat().st_size == expected_size:
             return 0, "exists"
 
     tmp = dest.parent / (dest.name + ".partial")
@@ -154,7 +181,15 @@ def download(url, dest, expected_size=None, force=False, speed=None, progress_ho
         if tmp.exists():
             tmp.unlink()
         try:
-            return download_once(url, dest, tmp, expected_size=expected_size, speed=speed, progress_hook=progress_hook)
+            return download_once(
+                url,
+                dest,
+                tmp,
+                expected_size=expected_size,
+                expected_sha1=expected_sha1,
+                speed=speed,
+                progress_hook=progress_hook,
+            )
         except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
             last = exc
             tmp.unlink(missing_ok=True)
@@ -249,8 +284,12 @@ def repo_entries(repo_root, publisher):
     for name, versions in base_catalog.get(publisher, {}).items():
         for item in versions:
             version = item.get("version")
-            if version:
-                entries.append((name, version))
+            manifest_sha1 = item.get("signature-sha-1")
+            if not version:
+                continue
+            if not isinstance(manifest_sha1, str) or not HEX40.fullmatch(manifest_sha1):
+                raise RuntimeError(f"catalog entry has no valid manifest SHA-1: {publisher}/{name}@{version}")
+            entries.append((name, version, manifest_sha1))
     return entries
 
 
@@ -324,14 +363,14 @@ def manifest_target(manifest_root, name, version):
 
 
 def download_manifest(repo_id, spec, repo_root, entry):
-    name, version = entry
+    name, version, manifest_sha1 = entry
     base_url = spec["base_url"]
     publisher = spec["publisher"]
     manifest_root = repo_root / "manifest/0"
     dest = manifest_target(manifest_root, name, version)
     encoded = quote(name + "@" + version, safe="/:@,.-_+")
     url = f"{base_url}/manifest/0/{encoded}"
-    download(url, dest)
+    download(url, dest, expected_sha1=manifest_sha1)
 
     desired_paths = set()
     desired_paths.add(str(dest.relative_to(manifest_root)))
